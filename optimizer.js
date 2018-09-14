@@ -1,9 +1,24 @@
 var fs = require('fs');
+var Promise = require('bluebird');
+Promise.promisifyAll(fs);
 var path = require('path');
 
 var execFile = require('child_process').execFile;
 var async = require('async');
 var tempfile = require('tempfile');
+
+async function execFileAsync(programPath, src, args) { 
+	const rfn = tempfile(path.extname(src));
+	await fs.copyFileAsync(src, rfn);
+	args.pop();
+	return new Promise((res, rej) => {
+		const c = execFile(programPath, [...args, rfn], _ => _);
+		c.on('exit', r => { res(!r ? rfn : null) });
+		c.on('error', e => { res(e) });
+	});
+}
+
+Promise.promisifyAll(fs);
 
 function Optimizer(param) {
   this.options = param.options || {};
@@ -256,6 +271,33 @@ function _round10 (value, exp) {
   return +(value[0] + 'e' + (value[1] ? (+value[1] + exp) : exp));
 }
 
+Optimizer.prototype.optimizeAsync = async function () {
+	var src = this.src;
+	var dest = this.dest || src;
+
+	// debugger //
+	const optimizers = this.getOptimizers(this.extension).reverse();
+	const files = await Promise.all(optimizers.map(optimizer => execFileAsync(optimizer.path, this.src, optimizer.args)));
+
+	const origSt = await fs.statAsync(src);
+	const origSize = await origSt.size;
+
+	const stats = await Promise.all(files.map(f => typeof f == 'string' ? fs.statAsync(f) : origSt));
+
+	const sizes = stats.map(st => st.size);
+	
+	const min = Math.min(...sizes);
+
+	if(min >= origSize) console.log('no advantage')
+	if(min >= origSize) return origSize;
+
+	await fs.renameAsync(files[sizes.indexOf(min)], dest);
+	files.filter(Boolean).forEach(f => fs.unlink(f, _ => _));
+	
+	return dest
+};
+
+
 Optimizer.prototype.optimize = function (callback) {
 
   var src = this.src;
@@ -299,6 +341,6 @@ Optimizer.prototype.optimize = function (callback) {
       diffPercent: _round10(100 * (diffSize / originalSize), -1)
     });
   });
-};
+}
 
 module.exports = Optimizer;
