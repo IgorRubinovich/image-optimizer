@@ -291,7 +291,7 @@ Optimizer.prototype.optimizeAsync = async function () {
 	if(min >= origSize) console.log('no advantage')
 	if(min >= origSize) return origSize;
 
-	await fs.renameAsync(files[sizes.indexOf(min)], dest);
+	await fs.copyAsync(files[sizes.indexOf(min)], dest); // copy is slower than move but works across single filesystem boundaries
 	files.filter(Boolean).forEach(f => fs.unlink(f, _ => _));
 	
 	return dest
